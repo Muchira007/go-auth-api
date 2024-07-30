@@ -12,6 +12,8 @@ func PostsCreate(c *gin.Context) {
 	var body struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		Price       float64
+		Quantity    int
 	}
 	//create a product
 	post := models.Product{Name: body.Description, Description: body.Description}

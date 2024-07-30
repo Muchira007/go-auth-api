@@ -7,15 +7,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/muchira007/jambo-green-go/initializers"
+	"github.com/muchira007/jambo-green-go/middleware"
 	"github.com/muchira007/jambo-green-go/models"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func SignUp(c *gin.Context) {
-	// signup logic
 	var body struct {
 		NationalID int    `json:"national_id" binding:"required"`
+		Email      string `json:"email" binding:"required"`
 		FirstName  string `json:"first_name" binding:"required"`
 		SecondName string `json:"second_name" binding:"required"`
 		SurName    string `json:"sur_name" binding:"required"`
@@ -42,6 +44,7 @@ func SignUp(c *gin.Context) {
 	// Create the user
 	user := models.User{
 		NationalID: body.NationalID,
+		Email:      body.Email,
 		FirstName:  body.FirstName,
 		SecondName: body.SecondName,
 		SurName:    body.SurName,
@@ -58,9 +61,7 @@ func SignUp(c *gin.Context) {
 	}
 
 	// Respond
-	c.JSON(http.StatusOK, gin.H{
-		"message": "User created successfully",
-	})
+	c.JSON(http.StatusOK, gin.H{"message": "User created successfully"})
 }
 
 func Login(c *gin.Context) {
@@ -130,8 +131,93 @@ func Login(c *gin.Context) {
 func Validate(c *gin.Context) {
 	user, _ := c.Get("user")
 
-	user.(models.User).
-		c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"message": user,
+	})
+}
+
+func ForgotPassword(c *gin.Context) {
+	var body struct {
+		Email string `json:"email" binding:"required"`
+	}
+
+	if err := c.Bind(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request body",
+		})
+		return
+	}
+
+	// Find the user by email
+	var user models.User
+	result := initializers.DB.Where("email = ?", body.Email).First(&user)
+
+	if result.Error != nil || user.ID == 0 {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "User not found",
+		})
+		return
+	}
+
+	// Generate reset token
+	resetToken := uuid.New().String()
+
+	// Update the user record with the reset token and expiration time
+	user.ResetToken = resetToken
+	user.ResetTokenExpiry = time.Now().Add(time.Hour * 1) // Token valid for 1 hour
+	initializers.DB.Save(&user)
+
+	// Send reset email
+	resetLink := "https://example.com/reset-password?token=" + resetToken
+	subject := "Password Reset Request"
+	bodyText := "Please use the following link to reset your password: " + resetLink
+	middleware.SendGoMail(body.Email, subject, bodyText)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Password reset email sent",
+	})
+}
+func ResetPassword(c *gin.Context) {
+	var body struct {
+		Token       string `json:"token" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required"`
+	}
+
+	if err := c.Bind(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request body",
+		})
+		return
+	}
+
+	// Find the user by reset token
+	var user models.User
+	result := initializers.DB.Where("reset_token = ? AND reset_token_expiry > ?", body.Token, time.Now()).First(&user)
+
+	if result.Error != nil || user.ID == 0 {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Invalid or expired token",
+		})
+		return
+	}
+
+	// Hash the new password
+	hash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), 10)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to hash new password",
+		})
+		return
+	}
+
+	// Update the user password
+	user.Password = string(hash)
+	// Clear the reset token and its expiry time
+	user.ResetToken = ""
+	user.ResetTokenExpiry = time.Time{}
+	initializers.DB.Save(&user)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Password updated successfully",
 	})
 }
