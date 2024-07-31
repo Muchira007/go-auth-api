@@ -67,7 +67,8 @@ func SignUp(c *gin.Context) {
 func Login(c *gin.Context) {
 	// login logic
 	var body struct {
-		PhoneNum string `json:"phone_num" binding:"required"`
+		// PhoneNum string `json:"phone_num" binding:"required"`
+		Email    string `json:"email" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
 	if err := c.Bind(&body); err != nil {
@@ -78,11 +79,11 @@ func Login(c *gin.Context) {
 	}
 	// get user
 	var user models.User
-	initializers.DB.Where("phone_num = ?", body.PhoneNum).First(&user)
+	initializers.DB.Where("email = ?", body.Email).First(&user)
 
 	if user.ID == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid phone or password",
+			"error": "Invalid Email or password",
 		})
 		return
 	}
@@ -219,5 +220,22 @@ func ResetPassword(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Password updated successfully",
+	})
+}
+
+// GetAllUsers retrieves all users
+func GetAllUsers(c *gin.Context) {
+	var users []models.User
+	result := initializers.DB.Find(&users)
+
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to retrieve users",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"users": users,
 	})
 }
