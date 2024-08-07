@@ -1,8 +1,9 @@
 package models
 
 import (
-	"gorm.io/gorm"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type Customer struct {
@@ -10,13 +11,15 @@ type Customer struct {
 	Name        string
 	Gender      string
 	PhoneNumber string
-	NationalID  string
-	Geolocation string
+	CustomerID  uint // Ensure this matches your database schema
+	Latitude    float64
+	Longitude   float64
 	Country     string
 	County      string
 	Subcounty   string
 	Village     string
-	Sale        []Sale
+	// Ward        string
+	Sale []Sale
 }
 
 type Sale struct {
@@ -31,4 +34,7 @@ type Sale struct {
 	StatusOfAccount string
 	Quantity        int
 	Total           float64
+	NationalID      uint
+	Latitude        float64
+	Longitude       float64
 }

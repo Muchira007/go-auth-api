@@ -28,15 +28,21 @@ func main() {
 		AllowCredentials: true,
 	}))
 
+	r.Static("/uploads", "./uploads")
+
 	// Authentication Details
 	r.POST("/signup", controllers.SignUp)
 	r.POST("/login", controllers.Login)
 	r.POST("/validate", middleware.RequireAuth, controllers.Validate)
 	r.POST("/forgot-password", controllers.ForgotPassword)
 	r.POST("/reset-password", controllers.ResetPassword)
+	r.POST("/users/phone/:phone_num", controllers.GetUserByPhoneNum)
 
 	// Get all users
 	r.POST("/users", middleware.RequireAuth, controllers.GetAllUsers)
+	r.POST("/create-users", middleware.RequireAuth, controllers.CreateUser)
+	r.POST("/get-users/:id", middleware.RequireAuth, controllers.GetUserByID)
+	r.POST("/update-users/:id", middleware.RequireAuth, controllers.UpdateUser)
 
 	// r.POST("/products", controllers.PostsCreate)
 
@@ -49,11 +55,20 @@ func main() {
 		productRoutes.POST("/:id", controllers.PostsShow)
 		productRoutes.POST("/Update/:id", controllers.ProductUpdate)
 		productRoutes.POST("/delete/:id", controllers.ProductDelete)
+		productRoutes.POST("/product-types", controllers.GetAllProductTypes)
+		productRoutes.POST("/total-products", controllers.GetTotalProducts)
+		productRoutes.POST("/get-all-products", controllers.GetAllProducts)
 	}
 
 	// Sale Details (with RequireAuth middleware)
 	r.POST("/sales", middleware.RequireAuth, controllers.RecordSale)
+	r.POST("/sales-by-gender", middleware.RequireAuth, controllers.GetSalesByGender)
+	r.POST("/sales-by-NatId", middleware.RequireAuth, controllers.GetSalesByNationalID)
+	r.POST("/agent-sales", middleware.RequireAuth, controllers.GetAgentSales)
 
 	// Start the server
+	r.POST("/download-pdf", middleware.DownloadPDF)
+	r.POST("/download-excel", middleware.DownloadExcelFile)
 	r.Run()
+
 }

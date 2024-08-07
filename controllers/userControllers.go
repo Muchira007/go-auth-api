@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"time"
@@ -13,6 +14,25 @@ import (
 	"github.com/muchira007/jambo-green-go/models"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// Function to generate JWT token
+func generateToken(user models.User) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": user.ID,
+		"exp": time.Now().Add(time.Hour * 24 * 30).Unix(),
+	})
+
+	secret := os.Getenv("SECRET")
+	if secret == "" {
+		return "", errors.New("Secret key not set")
+	}
+
+	tokenString, err := token.SignedString([]byte(secret))
+	if err != nil {
+		return "", err
+	}
+	return tokenString, nil
+}
 
 func SignUp(c *gin.Context) {
 	var body struct {
@@ -60,14 +80,25 @@ func SignUp(c *gin.Context) {
 		return
 	}
 
+	// Generate token
+	tokenString, err := generateToken(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to generate token",
+		})
+		return
+	}
+
 	// Respond
-	c.JSON(http.StatusOK, gin.H{"message": "User created successfully"})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "User created successfully",
+		"token":   tokenString,
+		"user":    user,
+	})
 }
 
 func Login(c *gin.Context) {
-	// login logic
 	var body struct {
-		// PhoneNum string `json:"phone_num" binding:"required"`
 		Email    string `json:"email" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
@@ -77,17 +108,19 @@ func Login(c *gin.Context) {
 		})
 		return
 	}
-	// get user
+
+	// Get user
 	var user models.User
 	initializers.DB.Where("email = ?", body.Email).First(&user)
 
 	if user.ID == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid Email or password",
+			"error": "Invalid email or password",
 		})
 		return
 	}
-	// compare passwords
+
+	// Compare passwords
 	err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(body.Password))
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -96,36 +129,24 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Generate jwt token
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub": user.ID,
-		"exp": time.Now().Add(time.Hour * 24 * 30).Unix(),
-	})
-
-	// Sign and get the encoded token as a string using the secret key
-	secret := os.Getenv("SECRET")
-	if secret == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Secret key not set",
-		})
-		return
-	}
-
-	tokenString, err := token.SignedString([]byte(secret))
+	// Generate token
+	tokenString, err := generateToken(user)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to generate token",
 		})
 		return
 	}
-	// respond
-	//send using cookie
+
+	// Set cookie
 	c.SetSameSite(http.SameSiteDefaultMode)
 	c.SetCookie("Authorization", tokenString, 3600*24*30, "", "", false, true)
 
+	// Respond
 	c.JSON(http.StatusOK, gin.H{
-		// "token":   tokenString,
 		"message": "Login successful",
+		"token":   tokenString,
+		"user":    user,
 	})
 }
 
@@ -178,6 +199,7 @@ func ForgotPassword(c *gin.Context) {
 		"message": "Password reset email sent",
 	})
 }
+
 func ResetPassword(c *gin.Context) {
 	var body struct {
 		Token       string `json:"token" binding:"required"`
@@ -237,5 +259,169 @@ func GetAllUsers(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"users": users,
+	})
+}
+
+// GetUserByPhoneNum retrieves a user by their phone number
+func GetUserByPhoneNum(c *gin.Context) {
+	// Get the phone number from the URL parameters
+	phoneNum := c.Param("phone_num")
+
+	// Find the user by phone number
+	var user models.User
+	result := initializers.DB.First(&user, "phone_num = ?", phoneNum)
+
+	if result.Error != nil {
+		if result.Error.Error() == "record not found" {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "User not found",
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to retrieve user",
+			})
+		}
+		return
+	}
+
+	// Respond with the user details
+	c.JSON(http.StatusOK, gin.H{
+		"user": user,
+	})
+}
+
+// CreateUser creates a user without sending back a token
+func CreateUser(c *gin.Context) {
+	var body struct {
+		NationalID int    `json:"national_id" binding:"required"`
+		Email      string `json:"email" binding:"required"`
+		FirstName  string `json:"first_name" binding:"required"`
+		SecondName string `json:"second_name" binding:"required"`
+		SurName    string `json:"sur_name" binding:"required"`
+		PhoneNum   string `json:"phone_num" binding:"required"`
+		Password   string `json:"password" binding:"required"`
+	}
+
+	if err := c.Bind(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request body",
+		})
+		return
+	}
+
+	// Hash the password
+	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), 10)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to hash password",
+		})
+		return
+	}
+
+	// Create the user
+	user := models.User{
+		NationalID: body.NationalID,
+		Email:      body.Email,
+		FirstName:  body.FirstName,
+		SecondName: body.SecondName,
+		SurName:    body.SurName,
+		PhoneNum:   body.PhoneNum,
+		Password:   string(hash),
+	}
+	result := initializers.DB.Create(&user)
+
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to create user",
+		})
+		return
+	}
+
+	// Respond
+	c.JSON(http.StatusOK, gin.H{
+		"message": "User created successfully",
+		"user":    user,
+	})
+}
+
+// GetUserByID retrieves a user by their ID
+func GetUserByID(c *gin.Context) {
+	// Get the user ID from the URL parameters
+	ID := c.Param("id")
+
+	// Find the user by ID
+	var user models.User
+	result := initializers.DB.First(&user, ID)
+	if result.Error != nil {
+		if result.Error.Error() == "record not found" {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "User not found",
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to retrieve user",
+			})
+		}
+		return
+	}
+
+	// Respond with the user details
+	c.JSON(http.StatusOK, gin.H{
+		"user": user,
+	})
+}
+
+// UpdateUser updates a user's information
+func UpdateUser(c *gin.Context) {
+	// Get the user ID from the URL parameters
+	userID := c.Param("id")
+
+	// Bind the request body to a struct
+	var body struct {
+		NationalID int    `json:"national_id"`
+		Email      string `json:"email"`
+		FirstName  string `json:"first_name"`
+		SecondName string `json:"second_name"`
+		SurName    string `json:"sur_name"`
+		PhoneNum   string `json:"phone_num"`
+	}
+	if err := c.Bind(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request body",
+		})
+		return
+	}
+
+	// Find the user by ID
+	var user models.User
+	result := initializers.DB.First(&user, userID)
+	if result.Error != nil {
+		if result.Error.Error() == "record not found" {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "User not found",
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to retrieve user",
+			})
+		}
+		return
+	}
+
+	// Update the user's information
+	user.NationalID = body.NationalID
+	user.Email = body.Email
+	user.FirstName = body.FirstName
+	user.SecondName = body.SecondName
+	user.SurName = body.SurName
+	user.PhoneNum = body.PhoneNum
+
+	// Save the updated user
+	initializers.DB.Save(&user)
+
+	// Respond with the updated user details
+	c.JSON(http.StatusOK, gin.H{
+		"message": "User updated successfully",
+		"user":    user,
 	})
 }

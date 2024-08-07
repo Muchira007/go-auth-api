@@ -92,7 +92,11 @@ func PostsCreate(c *gin.Context) {
 func PostsIndex(c *gin.Context) {
 	// Get products
 	var posts []models.Product
-	initializers.DB.Find(&posts)
+	if err := initializers.DB.Find(&posts).Error; err != nil {
+		// Return 500 if there is an error retrieving products
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve products"})
+		return
+	}
 
 	// Encode image data to Base64 for each product
 	for i := range posts {
@@ -101,18 +105,27 @@ func PostsIndex(c *gin.Context) {
 		}
 	}
 
-	// Respond
-	c.JSON(200, gin.H{"posts": posts})
+	// Respond with all products
+	c.JSON(http.StatusOK, gin.H{"posts": posts})
 }
 
 // PostsShow handles fetching a single product by ID.
 func PostsShow(c *gin.Context) {
-	// Get ID off URL
+	// Get ID from URL
 	id := c.Param("id")
 
 	// Get product
 	var post models.Product
-	initializers.DB.First(&post, id)
+	if err := initializers.DB.First(&post, id).Error; err != nil {
+		// Return 404 if the product is not found
+		if err.Error() == "record not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+		// Return 500 if there is a database error
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve product"})
+		return
+	}
 
 	// Encode image data to Base64 if it exists
 	var imageDataBase64 string
@@ -120,8 +133,8 @@ func PostsShow(c *gin.Context) {
 		imageDataBase64 = base64.StdEncoding.EncodeToString(post.ImageData)
 	}
 
-	// Respond
-	c.JSON(200, gin.H{
+	// Respond with product data
+	c.JSON(http.StatusOK, gin.H{
 		"post": gin.H{
 			"id":          post.ID,
 			"name":        post.Name,
@@ -206,4 +219,54 @@ func ProductDelete(c *gin.Context) {
 
 	// Respond
 	c.JSON(200, gin.H{"message": "Product deleted successfully"})
+}
+
+// GetTotalProducts handles fetching the total number of products.
+func GetTotalProducts(c *gin.Context) {
+	var count int64
+	if err := initializers.DB.Model(&models.Product{}).Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count products"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"total_products": count})
+}
+
+// GetAllProductTypes handles fetching all unique product types.
+func GetAllProductTypes(c *gin.Context) {
+	var types []struct {
+		Type string `json:"type"`
+	}
+
+	if err := initializers.DB.Model(&models.Product{}).
+		Select("DISTINCT color as type"). // Replace 'color' with the actual column that represents product types
+		Scan(&types).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product types"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"product_types": types})
+}
+
+//getallproducts:
+
+// PostsIndex handles fetching all products.
+func GetAllProducts(c *gin.Context) {
+	// Get products
+	var products []models.Product
+	if err := initializers.DB.Find(&products).Error; err != nil {
+		// Return 500 if there is an error retrieving products
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve products"})
+		return
+	}
+
+	// Encode image data to Base64 for each product
+	for i := range products {
+		if products[i].ImageData != nil {
+			products[i].ImageData = []byte(base64.StdEncoding.EncodeToString(products[i].ImageData))
+		}
+	}
+
+	// Respond with all products
+	c.JSON(http.StatusOK, gin.H{"products": products})
 }
