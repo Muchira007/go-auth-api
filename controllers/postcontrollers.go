@@ -149,65 +149,99 @@ func PostsShow(c *gin.Context) {
 
 // ProductUpdate handles updating a product, including its image.
 func ProductUpdate(c *gin.Context) {
-	// Get ID off the URL
+	// Get the product ID from the URL parameters
 	id := c.Param("id")
 
-	// Get data off req body
+	// Bind the request body to a struct with pointer fields
 	var body struct {
-		Name        string  `json:"name"`
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
-		Quantity    int     `json:"quantity"`
-		Color       string  `json:"color"`
+		Name        *string  `json:"name,omitempty"`
+		Description *string  `json:"description,omitempty"`
+		Price       *float64 `json:"price,omitempty"`
+		Quantity    *int     `json:"quantity,omitempty"`
+		Color       *string  `json:"color,omitempty"`
 	}
-
-	if err := c.Bind(&body); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid input"})
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
+	// Find the product by ID
+	var product models.Product
+	result := initializers.DB.First(&product, id)
+	if result.Error != nil {
+		if result.Error.Error() == "record not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve product"})
+		}
+		return
+	}
+
+	// Initialize imageData
 	var imageData []byte
-	// Check if a file was uploaded
+
+	// Check for file upload and update imageData if a new file is provided
 	file, _, err := c.Request.FormFile("image")
 	if err != nil {
 		if err == http.ErrMissingFile {
-			// No file uploaded, set imageData to nil
-			imageData = nil
+			// No file uploaded; do nothing
 		} else {
-			// File upload error
-			c.JSON(400, gin.H{"error": "Error processing file"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Error processing file"})
 			return
 		}
 	} else {
-		// Read the file data into a byte slice
 		defer file.Close()
 		imageData, err = io.ReadAll(file)
 		if err != nil {
-			c.JSON(500, gin.H{"error": "Unable to read file"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to read file"})
 			return
 		}
+		product.ImageData = imageData
 	}
 
-	// Find the product we are updating
-	var post models.Product
-	initializers.DB.First(&post, id)
-
-	// Update the product
-	updates := models.Product{
-		Name:        body.Name,
-		Description: body.Description,
-		Price:       body.Price,
-		Quantity:    body.Quantity,
-		Color:       body.Color,
+	// Update the product's fields only if they are provided
+	if body.Name != nil {
+		product.Name = *body.Name
 	}
-	if len(imageData) > 0 {
-		updates.ImageData = imageData
+	if body.Description != nil {
+		product.Description = *body.Description
 	}
-	initializers.DB.Model(&post).Updates(updates)
+	if body.Price != nil {
+		product.Price = *body.Price
+	}
+	if body.Quantity != nil {
+		product.Quantity = *body.Quantity
+	}
+	if body.Color != nil {
+		product.Color = *body.Color
+	}
 
-	// Respond
-	c.JSON(200, gin.H{"message": "Product updated successfully"})
+	// Save the updated product
+	if result := initializers.DB.Save(&product); result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
+		return
+	}
+
+	// Respond with the updated product details
+	var imageDataBase64 string
+	if product.ImageData != nil {
+		imageDataBase64 = base64.StdEncoding.EncodeToString(product.ImageData)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Product updated successfully",
+		"product": gin.H{
+			"id":          product.ID,
+			"name":        product.Name,
+			"description": product.Description,
+			"price":       product.Price,
+			"quantity":    product.Quantity,
+			"color":       product.Color,
+			"imageData":   imageDataBase64,
+		},
+	})
 }
+
 
 // ProductDelete handles deleting a product by ID.
 func ProductDelete(c *gin.Context) {
@@ -269,4 +303,24 @@ func GetAllProducts(c *gin.Context) {
 
 	// Respond with all products
 	c.JSON(http.StatusOK, gin.H{"products": products})
+}
+
+// Get all products and the quantity of each product
+// GetProductNamesAndQuantities handles fetching product names and their current quantities.
+func GetProductNamesAndQuantities(c *gin.Context) {
+    var products []struct {
+        Name     string `json:"name"`
+        Quantity int    `json:"quantity"`
+    }
+
+    // Select only the name and quantity columns
+    if err := initializers.DB.Model(&models.Product{}).
+        Select("name, quantity").
+        Find(&products).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve product data"})
+        return
+    }
+
+    // Respond with product names and quantities
+    c.JSON(http.StatusOK, gin.H{"products": products})
 }

@@ -111,7 +111,6 @@ func RecordSale(c *gin.Context) {
 		County          string  `json:"county" binding:"required"`
 		Subcounty       string  `json:"subcounty" binding:"required"`
 		Village         string  `json:"village" binding:"required"`
-		// Ward            string  `json:"ward" binding:"required"`
 		Latitude        float64 `json:"latitude" binding:"required"`
 		Longitude       float64 `json:"longitude" binding:"required"`
 		ProductName     string  `json:"product_name" binding:"required"`
@@ -122,6 +121,7 @@ func RecordSale(c *gin.Context) {
 		NationalID      uint    `json:"national_id" binding:"required"`
 	}
 
+	// Bind the incoming JSON body to the struct
 	if err := c.BindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "details": err.Error()})
 		return
@@ -134,9 +134,10 @@ func RecordSale(c *gin.Context) {
 		return
 	}
 
+	// Find or create the customer based on the CustomerID
 	var customer models.Customer
 	customerNationalID := strconv.Itoa(body.CustomerID)
-	if err := initializers.DB.Where("national_id = ?", customerNationalID).FirstOrCreate(&customer, models.Customer{
+	if err := initializers.DB.Where("customer_id = ?", customerNationalID).FirstOrCreate(&customer, models.Customer{
 		Name:        body.Name,
 		Gender:      body.Gender,
 		PhoneNumber: body.PhoneNumber,
@@ -145,20 +146,28 @@ func RecordSale(c *gin.Context) {
 		County:      body.County,
 		Subcounty:   body.Subcounty,
 		Village:     body.Village,
-		// Ward:        body.Ward,
 	}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to find or create customer"})
 		return
 	}
 
+	// Find the product by name
 	var product models.Product
 	if err := initializers.DB.Where("name = ?", body.ProductName).First(&product).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		return
 	}
 
+	// Check if the product has enough quantity to fulfill the sale
+	if product.Quantity < body.Quantity {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Not enough product quantity in stock"})
+		return
+	}
+
+	// Calculate the total price of the sale
 	total := product.Price * float64(body.Quantity)
 
+	// Create the sale record
 	sale := models.Sale{
 		DateOfSale:      time.Now(),
 		ProductID:       product.ID,
@@ -175,16 +184,24 @@ func RecordSale(c *gin.Context) {
 		Longitude:       body.Longitude,
 	}
 
+	// Reduce the product's stock by the quantity sold
+	product.Quantity -= body.Quantity
+	if err := initializers.DB.Save(&product).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product quantity"})
+		return
+	}
+
+	// Save the sale to the database
 	if err := initializers.DB.Create(&sale).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record sale"})
 		return
 	}
 
+	// Respond with the sale details
 	c.JSON(http.StatusOK, gin.H{"sale": sale})
 }
 
-// get gender distribution
-
+// get gender distribution of sales
 func GetSalesByGender(c *gin.Context) {
 	var results []struct {
 		Gender string        `json:"gender"`
@@ -266,4 +283,30 @@ func GetAgentSales(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": results})
+}
+
+// GetAllSales returns all sales recorded
+func GetAllSales(c *gin.Context) {
+	var sales []models.Sale
+
+	// Retrieve all sales from the database
+	if err := initializers.DB.Preload("Customer").Preload("Product").Find(&sales).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch sales", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"sales": sales})
+}
+
+// GetAllCustomers returns all customers
+func GetAllCustomers(c *gin.Context) {
+	var customers []models.Customer
+
+	// Retrieve all customers from the database
+	if err := initializers.DB.Find(&customers).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch customers", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"customers": customers})
 }

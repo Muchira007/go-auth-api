@@ -12,8 +12,6 @@ func init() {
 	initializers.LoadEnvVariables()
 	initializers.ConnectToDB()
 	initializers.SyncDatabase()
-	// middleware.SendMailSimpleHTML("Another subject", "/templates/mail.html", []string{"stivmicah@gmail.com"})
-	// middleware.SendGoMail("./templates/mail.html")
 }
 
 func main() {
@@ -38,37 +36,50 @@ func main() {
 	r.POST("/reset-password", controllers.ResetPassword)
 	r.POST("/users/phone/:phone_num", controllers.GetUserByPhoneNum)
 
-	// Get all users
+	// User Management
 	r.POST("/users", middleware.RequireAuth, controllers.GetAllUsers)
 	r.POST("/create-users", middleware.RequireAuth, controllers.CreateUser)
 	r.POST("/get-users/:id", middleware.RequireAuth, controllers.GetUserByID)
 	r.POST("/update-users/:id", middleware.RequireAuth, controllers.UpdateUser)
 
-	// r.POST("/products", controllers.PostsCreate)
-
-	// Product Details (with RequireAuth middleware)
+	// Product Management (with RequireAuth middleware)
 	productRoutes := r.Group("/products")
-	productRoutes.Use(middleware.RequireAuth) // Uncomment if authentication is needed for product routes
-	{
-		productRoutes.POST("", controllers.PostsCreate)
-		productRoutes.POST("/get-product", controllers.PostsIndex)
-		productRoutes.POST("/:id", controllers.PostsShow)
-		productRoutes.POST("/Update/:id", controllers.ProductUpdate)
-		productRoutes.POST("/delete/:id", controllers.ProductDelete)
-		productRoutes.POST("/product-types", controllers.GetAllProductTypes)
-		productRoutes.POST("/total-products", controllers.GetTotalProducts)
-		productRoutes.POST("/get-all-products", controllers.GetAllProducts)
-	}
 
-	// Sale Details (with RequireAuth middleware)
+// Apply the RequireAuth middleware and any other middleware
+productRoutes.Use(middleware.RequireAuth, middleware.CheckProductQuantity, middleware.LogRequest)
+{
+	productRoutes.POST("", controllers.PostsCreate)
+	productRoutes.POST("/get-product", controllers.PostsIndex)
+	productRoutes.POST("/:id", controllers.PostsShow)
+	productRoutes.POST("/update/:id", controllers.ProductUpdate)
+	productRoutes.POST("/delete/:id", controllers.ProductDelete)
+	productRoutes.POST("/product-types", controllers.GetAllProductTypes)
+	productRoutes.POST("/total-products", controllers.GetTotalProducts)
+	productRoutes.POST("/get-all-products", controllers.GetAllProducts)
+	productRoutes.POST("/get-product-by-name", controllers.GetProductNamesAndQuantities)
+}
+
+	// Sales Management (with RequireAuth middleware)
 	r.POST("/sales", middleware.RequireAuth, controllers.RecordSale)
 	r.POST("/sales-by-gender", middleware.RequireAuth, controllers.GetSalesByGender)
 	r.POST("/sales-by-NatId", middleware.RequireAuth, controllers.GetSalesByNationalID)
 	r.POST("/agent-sales", middleware.RequireAuth, controllers.GetAgentSales)
+	r.POST("/all-sales", middleware.RequireAuth, controllers.GetAllSales)
+	r.POST("/all-customers", middleware.RequireAuth, controllers.GetAllCustomers)
 
-	// Start the server
+	// Daraja API (Safaricom M-Pesa) Endpoints
+	r.POST("/stkpush", controllers.GenerateSTKPush)
+	r.POST("/account-balance", controllers.GetAccountBalance)
+	r.POST("/reverse-transaction", controllers.ReverseTransaction)
+	r.POST("/transfer-b2c", controllers.TransferB2C)
+	r.POST("/stk-callback", controllers.HandleSTKPushCallback)
+	r.POST("/b2c-callback", controllers.HandleB2CCallback)
+
+
+	// File Management Endpoints
 	r.POST("/download-pdf", middleware.DownloadPDF)
 	r.POST("/download-excel", middleware.DownloadExcelFile)
-	r.Run()
 
+	// Start the server
+	r.Run()
 }
